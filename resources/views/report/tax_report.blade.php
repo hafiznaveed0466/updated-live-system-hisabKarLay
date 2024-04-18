@@ -109,6 +109,10 @@
                     <li>
                         <a href="#expense_tax_tab" data-toggle="tab" aria-expanded="true"><i class="fa fas fa-minus-circle" aria-hidden="true"></i> @lang('lang_v1.expense_tax')</a>
                     </li>
+                    {{-- naveed nova tech --}}
+                    <li>
+                        <a href="#inline_tax_tab" data-toggle="tab" aria-expanded="true"><i class="fa fas fa-minus-circle" aria-hidden="true"></i> Inline Tax</a>
+                    </li>
                     @if(!empty($tax_report_tabs))
                         @foreach($tax_report_tabs as $key => $tabs)
                             @foreach ($tabs as $index => $value)
@@ -218,6 +222,42 @@
                                             <span class="display_currency" id="total_expense_{{$tax['id']}}" data-currency_symbol ="true"></span>
                                         </td>
                                     @endforeach
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    {{-- naveed nova tech  --}}
+                    <div class="tab-pane" id="inline_tax_tab">
+                        <table class="table table-bordered table-striped" id="inline_tax_table" width="100%">
+                            <thead>
+                                <tr>
+                                    <th>@lang('messages.date')</th>
+                                    <th>@lang('sale.invoice_no')</th>
+                                    <th>@lang('contact.customer')</th>
+                                    <th>@lang('contact.tax_no')</th>
+                                    <th>Amount Before Tax</th>
+                                    <th>@lang('lang_v1.payment_method')</th>
+                                    <th>@lang('receipt.discount')</th>
+                                    {{-- @foreach($taxes as $tax)
+                                        <th>
+                                            {{$tax['name']}}
+                                        </th>
+                                    @endforeach --}}
+                                    <th>Tax Amount</th>
+                                </tr>
+                            </thead>
+                            <tfoot>
+                                <tr class="bg-gray font-17 text-center footer-total">
+                                    <td colspan="4"><strong>@lang('sale.total'):</strong></td>
+                                    <td><span class="display_currency" id="inline_purchase_total" data-currency_symbol ="true"></span></td>
+                                    <td class="output_payment_method_count"></td>
+                                    <td>&nbsp;</td>
+                                    <td><span class="display_currency" id="inline_tax1" data-currency_symbol ="true"></span></td>
+                                    {{-- @foreach($taxes as $tax)
+                                        <td>
+                                            <span class="display_currency" id="total_output_{{$tax['id']}}" data-currency_symbol ="true"></span>
+                                        </td>
+                                    @endforeach --}}
                                 </tr>
                             </tfoot>
                         </table>
@@ -369,7 +409,56 @@
                         },
                     });
                 }
-            } else if ($(e.target).attr('href') == '#expense_tax_tab') {
+            } else if ($(e.target).attr('href') == '#inline_tax_tab') {
+                if (typeof (inline_tax_datatable) == 'undefined') {
+                    inline_tax_datatable = $('#inline_tax_table').DataTable({
+                        processing: true,
+                        serverSide: true,
+                        aaSorting: [[0, 'desc']],
+                        ajax: {
+                            url: '/reports/tax-details2',
+                            data: function(d) {
+                                d.type = 'sell';
+                                d.tax_in = 'inline';
+                                d.location_id = $('#tax_report_location_id').val();
+                                d.contact_id = $('#tax_report_contact_id').val();
+                                var start = $('input#tax_report_date_range')
+                                    .data('daterangepicker')
+                                    .startDate.format('YYYY-MM-DD');
+                                var end = $('input#tax_report_date_range')
+                                    .data('daterangepicker')
+                                    .endDate.format('YYYY-MM-DD');
+                                d.start_date = start;
+                                d.end_date = end;
+                            }
+                        },
+                        columns: [
+                            { data: 'transaction_date', name: 'transaction_date' },
+                            { data: 'invoice_no', name: 'invoice_no' },
+                            { data: 'contact_name', name: 'contact_name' },
+                            { data: 'tax_number', name: 'c.tax_number' },
+                            { data: 'total_before_tax', name: 'total_before_tax' },
+                            { data: 'payment_methods', orderable: false, "searchable": false},
+                            { data: 'discount_amount', name: 'discount_amount' },
+                            { data: 'item_tax', name: 'item_tax' }, // Added column for Tax Amount
+                        ],
+                        "footerCallback": function ( row, data, start, end, display ) {
+                            $('.output_payment_method_count').html(__count_status(data, 'payment_methods'));
+                        },
+                        fnDrawCallback: function(oSettings) {
+                            $('#inline_purchase_total').text(
+                                sum_table_col($('#inline_tax_table'), 'total_before_tax')
+                            );
+                            $('#inline_tax1').text(
+                                sum_table_col($('#inline_tax_table'), 'item_tax')
+                            );
+                            // Remove the foreach loop for taxes here
+                            __currency_convert_recursively($('#inline_tax_table'));
+                        },
+                    });
+                }
+            }
+            else if ($(e.target).attr('href') == '#expense_tax_tab') {
                 if (typeof (expense_tax_datatable) == 'undefined') {
                     expense_tax_datatable = $('#expense_tax_table').DataTable({
                         processing: true,
@@ -425,6 +514,10 @@
             }
             if ($("#output_tax_tab").hasClass('active')) {
                 output_tax_datatable.ajax.reload();
+            }
+            //naveed novatech
+            if ($("#inline_tax_tab").hasClass('active')) {
+                inline_tax_datatable.ajax.reload();
             }
             if ($("#expense_tax_tab").hasClass('active')) {
                 expense_tax_datatable.ajax.reload();

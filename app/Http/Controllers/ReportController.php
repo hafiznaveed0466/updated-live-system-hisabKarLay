@@ -637,7 +637,7 @@ class ReportController extends Controller
                         $q->whereNotNull('transaction_sell_lines.tax_id');
                     }, 'sell_lines.line_tax']);
             }
-            if ($type == 'purchase') {
+           if ($type == 'purchase') {
                 $sells->where('transactions.type', 'purchase')
                     ->where('transactions.status', 'received')
                     ->where(function ($query) {
@@ -802,6 +802,144 @@ class ReportController extends Controller
                             ->make(true);
         }
     }
+    //naveed nova tech
+    public function getTaxDetails2(Request $request)
+    {
+        if (! auth()->user()->can('tax_report.view')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        if ($request->ajax()) {
+            $business_id = $request->session()->get('user.business_id');
+            $taxes = TaxRate::forBusiness($business_id);
+            $type = $request->input('type');
+            $tax_in = $request->input('tax_in');
+
+            $payment_types = $this->transactionUtil->payment_types(null, true, $business_id);
+
+            $sells = Transaction::leftJoin('transaction_sell_lines', 'transactions.id', '=', 'transaction_sell_lines.transaction_id')
+                            ->leftJoin('contacts as c', 'transactions.contact_id', '=', 'c.id')
+                            ->where('transactions.type', 'sell')
+                            ->where('transactions.status', 'final')
+                            ->where('transactions.tax_id', NULL)
+                            ->where('transaction_sell_lines.tax_id', NULL)
+                            ->where('transactions.business_id', $business_id)
+                            ->with(['payment_lines'])
+                            ->select(
+                                'c.name as contact_name',
+                                'c.supplier_business_name',
+                                'c.tax_number',
+                                'transactions.ref_no',
+                                'transactions.invoice_no',
+                                'transactions.transaction_date',
+                                'transactions.total_before_tax',
+                                DB::raw('SUM(transaction_sell_lines.item_tax) as total_item_tax'),
+                                'transactions.id',
+                                'transactions.type',
+                                'transaction_sell_lines.line_discount_type',
+                                DB::raw('SUM(transaction_sell_lines.line_discount_amount) as total_discount_amount'),
+                                DB::raw('SUM(transaction_sell_lines.quantity) as quantity'),
+                                DB::raw('SUM(transaction_sell_lines.quantity_returned) as quantity_returned'),
+
+                            )
+                            ->groupBy('transactions.id');
+                //             ->get();
+
+                // dd($sells);
+
+                    // DB::raw("(SELECT SUM( COALESCE(transaction_sell_line.quantity -  0) * purchase_price_inc_tax) FROM transactions 
+                    // JOIN purchase_lines AS pl ON transactions.id=pl.transaction_id
+                    // WHERE (transactions.status='received' OR transactions.type='purchase_return')  AND transactions.location_id=vld.location_id 
+                    // AND (pl.variation_id=variations.id)) as stock_price");
+           
+            $permitted_locations = auth()->user()->permitted_locations();
+            if ($permitted_locations != 'all') {
+                $sells->whereIn('transactions.location_id', $permitted_locations);
+            }
+
+            if (request()->has('location_id')) {
+                $location_id = request()->get('location_id');
+                if (! empty($location_id)) {
+                    $sells->where('transactions.location_id', $location_id);
+                }
+            }
+
+            if (request()->has('contact_id')) {
+                $contact_id = request()->get('contact_id');
+                if (! empty($contact_id)) {
+                    $sells->where('transactions.contact_id', $contact_id);
+                }
+            }
+
+            if (! empty(request()->start_date) && ! empty(request()->end_date)) {
+                $start = request()->start_date;
+                $end = request()->end_date;
+                $sells->whereDate('transactions.transaction_date', '>=', $start)
+                                ->whereDate('transactions.transaction_date', '<=', $end);
+            }
+           
+            $datatable = Datatables::of($sells);
+            $raw_cols = ['total_before_tax', 'discount_amount', 'contact_name', 'payment_methods', 'item_tax','tax_number','invoice_no', 'transaction_date'];
+            $group_taxes_array = TaxRate::groupTaxes($business_id);
+           
+
+            $datatable->editColumn(
+                    'total_before_tax',
+                    function ($row) {
+                        return '<span class="total_before_tax" 
+                        data-orig-value="'.$row->total_before_tax.'">'.
+                        $this->transactionUtil->num_f($row->total_before_tax, true).'</span>';
+                    }
+                )->editColumn('discount_amount', function ($row) {
+                    $d = '';
+                    if ($row->total_discount_amount !== 0) {
+                        $symbol = $row->line_discount_type != 'percentage';
+                        $d .= $this->transactionUtil->num_f($row->total_discount_amount, $symbol);
+
+                        if ($row->line_discount_type == 'percentage') {
+                            $d .= '%';
+                        }
+                    }
+
+                    return $d;
+                    
+                })
+                ->editColumn('transaction_date', '{{@format_datetime($transaction_date)}}')
+                ->editColumn('item_tax', function ($row) {
+                    if($row->quantity_returned != 0)
+                    {
+                        $tax_amount = ($row->quantity - $row->quantity_returned) * ($row->total_item_tax/$row->quantity);
+                       
+                        return '<span class="item_tax" 
+                            data-orig-value="'.$tax_amount.'">'.
+                            $this->transactionUtil->num_f($tax_amount, true).'</span>';
+                    }else{
+                        return '<span class="item_tax" 
+                        data-orig-value="'.$row->total_item_tax.'">'.
+                        $this->transactionUtil->num_f($row->total_item_tax, true).'</span>';
+                    }
+                })
+                
+                ->editColumn('contact_name', '@if(!empty($supplier_business_name)) {{$supplier_business_name}},<br>@endif {{$contact_name}}')
+                ->addColumn('payment_methods', function ($row) use ($payment_types) {
+                    $methods = array_unique($row->payment_lines->pluck('method')->toArray());
+                    $count = count($methods);
+                    $payment_method = '';
+                    if ($count == 1) {
+                        $payment_method = $payment_types[$methods[0]];
+                    } elseif ($count > 1) {
+                        $payment_method = __('lang_v1.checkout_multi_pay');
+                    }
+
+                    $html = ! empty($payment_method) ? '<span class="payment-method" data-orig-value="'.$payment_method.'" data-status-name="'.$payment_method.'">'.$payment_method.'</span>' : '';
+
+                    return $html;
+                });
+
+            return $datatable->rawColumns($raw_cols)
+                            ->make(true);
+        }
+    }
 
     /**
      * Shows tax report of a business
@@ -852,6 +990,8 @@ class ReportController extends Controller
         $tax_report_tabs = $this->moduleUtil->getModuleData('getTaxReportViewTabs');
 
         $contact_dropdown = Contact::contactDropdown($business_id, false, false);
+
+        // dd('taxes', $taxes, 'business_locations', $business_locations, 'tax_report_tabs', $tax_report_tabs, 'contact_dropdown', $contact_dropdown);
 
         return view('report.tax_report')
             ->with(compact('business_locations', 'taxes', 'tax_report_tabs', 'contact_dropdown'));

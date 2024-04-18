@@ -308,6 +308,8 @@ Route::middleware(['setData', 'auth', 'SetSessionData', 'language', 'timezone', 
     Route::get('/reports/stock-details', [ReportController::class, 'getStockDetails']);
     Route::get('/reports/tax-report', [ReportController::class, 'getTaxReport']);
     Route::get('/reports/tax-details', [ReportController::class, 'getTaxDetails']);
+    //naveed novatech
+    Route::get('/reports/tax-details2', [ReportController::class, 'getTaxDetails2']);
     Route::get('/reports/trending-products', [ReportController::class, 'getTrendingProducts']);
     Route::get('/reports/expense-report', [ReportController::class, 'getExpenseReport']);
     Route::get('/reports/stock-adjustment-report', [ReportController::class, 'getStockAdjustmentReport']);
